@@ -1,0 +1,175 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use v5.18;
+
+use X::Osd;
+use IPC::Cmd qw( can_run run );
+
+# check if amixer exists and get its path
+my $amixer_path = can_run('amixer')
+    or die 'amixer is not available';
+
+# create osd bar (two output lines)
+my $osd = X::Osd->new(2);
+# osd bar properties
+$osd->set_font("-xos4-terminus-bold-r-normal-*-18-180-72-72-c-100-iso10646-1");
+$osd->set_shadow_offset(1);
+$osd->set_pos(XOSD_bottom);
+$osd->set_align(XOSD_center);
+$osd->set_horizontal_offset(0);
+$osd->set_vertical_offset(30);
+$osd->set_timeout(5);
+
+# locate (and if missing create) named pipe
+my $fifo_file = $ENV{OSD_AMIXER} // "$ENV{HOME}/.osd-amixer.fifo";
+unless (-p $fifo_file) {
+    # if another filetype is there, just die
+    if (-e $fifo_file) {
+        die "$fifo_file: not a named pipe";
+    }
+    else {
+    # create the named pipe
+        require POSIX;
+        POSIX::mkfifo( $fifo_file, 0600 )
+            or die "cannot mkfifo $fifo_file: $!";
+    }
+}
+
+# open named pipe
+open( my $fifo_fh, "+<", $fifo_file ) 
+    or die "cannot open $fifo_file: $!";
+
+my $amixer_volume;
+
+# constantly read from it
+FIFO_INPUT:
+while (chomp( my $fifo_input = <$fifo_fh>) ) {
+    given ($fifo_input) {
+        when ('up')     { $amixer_volume = '3%+'; }
+        when ('down')   { $amixer_volume = '3%-'; }
+        when ('toggle') { $amixer_volume = 'toggle'; }
+        when ('exit')   { last FIFO_INPUT; }
+        default         {
+            warn "$fifo_input: invalid input";
+            next FIFO_INPUT;
+        }
+    }
+
+    # set new volume value and read the output
+    my $amixer_cmd = [$amixer_path, 'sset', 'Master,0', $amixer_volume];
+    my $amixer_out;
+    run(
+        command => $amixer_cmd,
+        verbose => 0,
+        buffer  => \$amixer_out,
+    );
+
+    # red output color if sound mutes, blue otherwise
+    my $colour = ( index($amixer_out, '[off]') != -1 ) ? '#DD0000' : '#1E90FF';
+    $osd->set_colour($colour);
+
+    # get new volume value and print osd bar
+    if (my ($volume) = $amixer_out =~ m/([0-9]{1,3})%/ ) {
+        $osd->string(0, "Master Volume:${volume}%");
+        $osd->percentage(1, $volume);
+    }
+}
+
+# close pipe before exit
+close($fifo_fh);
+exit(0);
+
+__END__
+
+=pod
+
+=head1 NAME
+
+osd-amixer - manage system volume with On-Screen-Display status bar
+
+=head1 SYNOPSIS
+
+B<osd-amixer> [&]
+
+=head1 DESCRIPTION
+
+B<osd-amixer> is meant to run as a background process, continuously reading
+from its named pipe (fifo) for specific keywords/commands. This way it can
+easily be used in any desktop environment or window manager using shell
+commands, shell scripts, keyboard shortcuts or even mouse gestures.
+
+=head1 KEYWORDS
+
+=head2 up
+
+I<raise> volume by 3%.
+
+=head2 down
+
+I<lower> volume by 3%.
+
+=head2 toggle
+
+toggle I<mute> status on/off.
+
+=head2 exit
+
+I<stop> running B<osd-amixer> and I<close> its named pipe.
+
+=head1 ENVIRONMENT
+
+=head2 OSD_AMIXER
+
+B<osd-amixer> uses the environment variable I<OSD_AMIXER> to create a named
+pipe (fifo) and read from it. If this variable is missing,
+F<$HOME/.osd-amixer.fifo> is used instead.
+
+=head1 EXAMPLES
+
+=head2 Command line:
+
+    echo up > ~/.osd-amixer.fifo
+    echo toggle > ~/.osd-amixer.fifo
+
+=head2 Bash script:
+
+    #!/bin/bash
+    osd_fifo=${OSD_AMIXER:-"$HOME/.osd-amixer.fifo"}
+    [[ -p $osd_fifo ]] && echo $1 > $osd_fifo
+
+=head1 DEPENDENCIES
+
+=head2 Perl
+
+version I<5.10> or later.
+
+=head2 IPC::Run
+
+version I<0.90> or later.
+
+=head2 X::Osd
+
+version I<0.7.0> or later.
+
+=head2 alsa-utils
+
+version I<1.0.0> or later.
+
+=head1 AUTHOR
+
+Thanos Zygouris E<lt>athanasios.zygouris@gmail.comE<gt>.
+
+=head1 COPYRIGHT
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the Perl Artistic Licence 2.0.
+S<E<lt>http://opensource.org/licenses/artistic-license-2.0.phpE<gt>>
+
+=head1 SEE ALSO
+
+export(1p), fifo(7), perlipc(1perl), perlartistic(1perl)
+
+=cut
+
