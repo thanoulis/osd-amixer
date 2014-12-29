@@ -43,3 +43,10 @@ DEPENDENCIES
 **X::Osd** version 0.7.0 or later.
 
 **alsa-utils** version 1.0.0 or later.
+
+
+LICENSE
+-------
+**osd-amixer** is licensed under _The Artistic License 2.0_.
+
+Read LICENSE for details.
