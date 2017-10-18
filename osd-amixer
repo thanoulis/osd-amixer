@@ -38,7 +38,7 @@ unless (-p $fifo_file) {
 }
 
 # open named pipe
-open( my $fifo_fh, "+<", $fifo_file ) 
+open( my $fifo_fh, "+<", $fifo_file )
     or die "cannot open $fifo_file: $!";
 
 my $amixer_volume;
